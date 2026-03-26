@@ -60,6 +60,7 @@ class GibbsSampler:
         burn_in: int       = config.BURN_IN,
         smoothing: float   = config.SMOOTHING,
         walker: Optional[RandomWalker] = None,
+        ground_truth: Optional[Dict[int, int]] = None,
         seed: int          = config.RANDOM_SEED,
     ):
         self.G               = G
@@ -70,20 +71,29 @@ class GibbsSampler:
         self.burn_in         = burn_in
         self.smoothing       = smoothing
         self.walker          = walker
+        self.ground_truth    = ground_truth
         self.rng             = np.random.default_rng(seed)
 
-        # Current label state (observed + unknown initialised randomly)
+        # Current label state (Bootstrapped initially)
         self.current_labels: Dict[int, int] = dict(observed_labels)
         for node in unknown_nodes:
-            self.current_labels[node] = int(self.rng.integers(0, num_labels))
+            self.current_labels[node] = self._bootstrap_node(node)
 
-        # Posterior sample counts: sample_counts[node][label] = frequency
+        # Posterior sample counts (Phase 4)
         self.sample_counts: Dict[int, np.ndarray] = {
             node: np.zeros(num_labels, dtype=int) for node in unknown_nodes
         }
 
-        # Convergence tracking
-        self.convergence_curve: List[float] = []   # label-change rate per iter
+        # Diagnostics (Phase 5/6 extension)
+        self.diagnostics = {
+            "iteration": [],
+            "log_likelihood": [],
+            "accuracy": [],
+            "mean_entropy": [],
+            "change_rate": [],
+            "map_stability": [],
+        }
+        self._prev_map_labels = {}
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -98,9 +108,30 @@ class GibbsSampler:
         print(f"\n[GibbsSampler] Starting: {self.iterations} iterations "
               f"(burn-in={self.burn_in}) on {len(self.unknown_nodes)} unknown nodes …")
 
-        for t in tqdm(range(1, self.iterations + 1), desc="Gibbs Sampling"):
+        # 2. Burn-in Phase (Phase 3)
+        for t in tqdm(range(1, self.burn_in + 1), desc="Burn-in"):
             changes = 0
-            # Randomise sweep order each iteration
+            nodes_order = list(self.unknown_nodes)
+            self.rng.shuffle(nodes_order)
+            for node in nodes_order:
+                old_label = self.current_labels[node]
+                new_label = self._sample_conditional(node)
+                self.current_labels[node] = new_label
+                if new_label != old_label:
+                    changes += 1
+            
+            self._record_diagnostics(t, changes)
+
+        # 3. Initialize Counts (Phase 4)
+        for node in self.unknown_nodes:
+            self.sample_counts[node].fill(0)
+            self._prev_map_labels[node] = self.current_labels[node]
+
+        # 4. Sampling Phase (Phase 5)
+        sampling_iterations = max(1, self.iterations - self.burn_in)
+        for t_rel in tqdm(range(1, sampling_iterations + 1), desc="Sampling"):
+            t = self.burn_in + t_rel
+            changes = 0
             nodes_order = list(self.unknown_nodes)
             self.rng.shuffle(nodes_order)
 
@@ -111,18 +142,18 @@ class GibbsSampler:
                 if new_label != old_label:
                     changes += 1
 
-                # Accumulate posterior samples after burn-in
-                if t > self.burn_in:
-                    self.sample_counts[node][new_label] += 1
+                self.sample_counts[node][new_label] += 1
 
-            change_rate = changes / max(len(self.unknown_nodes), 1)
-            self.convergence_curve.append(change_rate)
+            self._record_diagnostics(t, changes)
 
+        # Extract predicted labels for return
         predicted = {
             node: int(np.argmax(self.sample_counts[node]))
             for node in self.unknown_nodes
         }
-        print(f"[GibbsSampler] Done. Final label-change rate: {self.convergence_curve[-1]:.4f}")
+        # Final convergence summary (using compatibility with original API)
+        self.convergence_curve = self.diagnostics["change_rate"] 
+        print(f"[GibbsSampler] Done. Final Accuracy: {self.diagnostics['accuracy'][-1]:.4f}")
         return predicted
 
     def get_posterior_distribution(self, node: int) -> np.ndarray:
@@ -133,13 +164,24 @@ class GibbsSampler:
 
     # ── Private Helpers ──────────────────────────────────────────────────────
 
+    def _bootstrap_node(self, node: int) -> int:
+        """
+        Initial bootstrapping using only observed neighbors.
+        If no observed neighbors, assign a random label.
+        """
+        counts = np.full(self.num_labels, self.smoothing)
+        for neighbor in self.G.neighbors(node):
+            if neighbor in self.observed_labels:
+                lbl = self.observed_labels[neighbor]
+                counts[lbl] += 1.0
+        
+        probs = counts / counts.sum()
+        return int(self.rng.choice(self.num_labels, p=probs))
+
     def _sample_conditional(self, node: int) -> int:
         """
         Samples label_i ~ P(label_i | labels of neighbors).
-
-        Combines:
-          (a) Immediate neighbor label counts (primary signal)
-          (b) Walk-based label visit counts   (secondary signal, if walker available)
+        f(a_i) implementation.
         """
         probs = self._neighbor_label_probs(node)
 
@@ -155,8 +197,8 @@ class GibbsSampler:
 
     def _neighbor_label_probs(self, node: int) -> np.ndarray:
         """
-        Computes conditional P(label | neighbors) from immediate neighbor labels.
-        Uses Laplace smoothing.
+        Computes conditional P(label | neighbors). 
+        This acts as f(a_i) in the user requirements.
         """
         counts = np.full(self.num_labels, self.smoothing)
         for neighbor in self.G.neighbors(node):
@@ -164,3 +206,51 @@ class GibbsSampler:
             if lbl is not None:
                 counts[lbl] += 1.0
         return counts / counts.sum()
+
+    # ── Diagnostic Helpers ───────────────────────────────────────────────────
+
+    def _record_diagnostics(self, iteration: int, changes: int):
+        """Records MCMC metrics. Note: label-change rate is unreliable due to label switching."""
+        self.diagnostics["iteration"].append(iteration)
+        self.diagnostics["change_rate"].append(changes / len(self.unknown_nodes))
+        
+        # 1. Log-Pseudo-Likelihood: sum_i log P(y_i | neighbors)
+        log_pl = 0.0
+        for node in self.unknown_nodes:
+            probs = self._neighbor_label_probs(node)
+            log_pl += np.log(max(probs[self.current_labels[node]], 1e-10))
+        self.diagnostics["log_likelihood"].append(log_pl)
+
+        # 2. Accuracy Tracking (with knowledge of ground truth)
+        if self.ground_truth:
+            correct = sum(1 for n in self.unknown_nodes if self.current_labels[n] == self.ground_truth[n])
+            self.diagnostics["accuracy"].append(correct / len(self.unknown_nodes))
+        else:
+            self.diagnostics["accuracy"].append(0.0)
+
+        # 3. Mean Posterior Entropy
+        # For iterations after burn-in, we use sample_counts to estimate posterior
+        if iteration > self.burn_in:
+            entropies = []
+            for node in self.unknown_nodes:
+                p = self.get_posterior_distribution(node)
+                # Shanon entropy: -sum p log p
+                ent = -np.sum(p * np.log2(p + 1e-10))
+                entropies.append(ent)
+            self.diagnostics["mean_entropy"].append(np.mean(entropies))
+        else:
+            # During burn-in, entropy is not well-defined from samples
+            self.diagnostics["mean_entropy"].append(np.log2(self.num_labels))
+
+        # 4. MAP Stability: Fraction of nodes whose MAP label hasn't changed
+        stable = 0
+        for node in self.unknown_nodes:
+            if iteration > self.burn_in:
+                new_map = int(np.argmax(self.sample_counts[node]))
+            else:
+                new_map = self.current_labels[node]
+            
+            if new_map == self._prev_map_labels.get(node):
+                stable += 1
+            self._prev_map_labels[node] = new_map
+        self.diagnostics["map_stability"].append(stable / len(self.unknown_nodes))

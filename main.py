@@ -42,6 +42,7 @@ from utils.visualizer import (
     plot_degree_distribution,
     plot_confusion_matrix,
     plot_posterior_distributions,
+    plot_diagnostics,
 )
 
 
@@ -72,13 +73,12 @@ def main():
     walker = RandomWalker(G)
     walker.run_walks(observed_labels)
 
-    # ── 5. Gibbs Sampling ─────────────────────────────────────────────────────
-    print("\n[5/9] Running Gibbs Sampler …")
     sampler = GibbsSampler(
         G=G,
         observed_labels=observed_labels,
         unknown_nodes=unknown_nodes,
         walker=walker,
+        ground_truth=node_labels,
     )
     gibbs_predictions = sampler.run()
 
@@ -111,6 +111,7 @@ def main():
     plot_accuracy_comparison(gibbs_acc, lp_acc)
     plot_degree_distribution(G)
     plot_confusion_matrix(cm)
+    plot_diagnostics(sampler.diagnostics)
 
     # Posterior distribution for a sample of unknown nodes
     sample_nodes = unknown_nodes[:6]

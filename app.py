@@ -28,6 +28,7 @@ from utils.visualizer import (
     plot_accuracy_comparison,
     plot_degree_distribution,
     plot_confusion_matrix,
+    plot_diagnostics,
 )
 
 st.set_page_config(
@@ -94,7 +95,7 @@ def run_pipeline(n_nodes, k_frac, p_in_val, p_out_val, g_iters):
     # 4. Gibbs Sampler (The Core AI)
     sampler = GibbsSampler(
         G=G, observed_labels=observed_labels, unknown_nodes=unknown_nodes, 
-        walker=walker, iterations=g_iters
+        walker=walker, iterations=g_iters, ground_truth=node_labels
     )
     gibbs_preds = sampler.run()
     
@@ -114,6 +115,7 @@ def run_pipeline(n_nodes, k_frac, p_in_val, p_out_val, g_iters):
     plot_convergence(sampler.convergence_curve)
     plot_confusion_matrix(cm)
     plot_degree_distribution(G)
+    plot_diagnostics(sampler.diagnostics)
     
     return {
         "stats": stats,
@@ -205,11 +207,16 @@ else:
 
     st.markdown("---")
     
-    st.header("4. How the AI 'Learned' over time 📈")
+    st.header("4. Advanced Convergence Diagnostics 📈")
     st.markdown("""
-    The **Convergence Curve** below shows the AI's "thought process". 
-    At first (Iteration 0), it changes its mind about people's jobs constantly (high change rate). Over time, as it looks at more connections, it settles on the final answer and stops changing its mind. The AI has "converged"!
+    While the **Label-Change Rate** measures how much the AI is switching labels, it's not a perfect measure of convergence because of **Label Switching** (the AI might just be swapping the names of groups). 
+    
+    Instead, we look at:
+    - **Log-Likelihood**: How well the labels fit the network structure.
+    - **Accuracy**: How close the guesses are to the real job titles.
+    - **Posterior Entropy**: How "unsure" the AI is (lower is better).
+    - **Stability**: How often the most likely answer changes.
     """)
-    st.image("outputs/convergence.png", use_column_width=True)
+    st.image("outputs/diagnostics.png", use_column_width=True)
 
     st.success("🎉 **You're an AI Graph Expert!** Try changing the sliders on the left to make the game harder for the AI. (Hint: Lower the 'Homophily' slider to make the network random!)")

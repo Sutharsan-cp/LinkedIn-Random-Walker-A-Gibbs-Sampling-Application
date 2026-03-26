@@ -54,8 +54,8 @@ Build Graph → Compute Stats → Hide 80% of Labels
 
 | Method | Accuracy |
 |---|---|
-| **Gibbs Sampling** (core AI) | **90.83%** |
-| Label Propagation (baseline) | 100.00% |
+| **Gibbs Sampling** (core AI) | **86.25%** |
+| Label Propagation (baseline) | 79.58% |
 
 The Gibbs Sampler correctly guessed the profession of **218 out of 240 hidden people**, just from looking at who they're connected to!
 

@@ -245,3 +245,64 @@ def plot_posterior_distributions(
                 facecolor=fig.get_facecolor())
     plt.close()
     print(f"  Saved: {path}")
+
+
+def plot_diagnostics(diagnostics: dict, burn_in: int = config.BURN_IN) -> None:
+    """
+    Plots advanced MCMC diagnostics:
+      1. Log-Pseudo-Likelihood (Model Fit)
+      2. Accuracy vs Ground Truth
+      3. Mean Posterior Entropy (Confidence)
+      4. MAP Stability
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    fig.patch.set_facecolor("#0D1117")
+    
+    iters = diagnostics["iteration"]
+    
+    # 1. Log-Likelihood
+    ax = axes[0, 0]
+    ax.set_facecolor("#0D1117")
+    ax.plot(iters, diagnostics["log_likelihood"], color="#4C72B0", lw=1.5)
+    ax.set_title("Log-Pseudo-Likelihood (Higher is Better)", color="white", fontsize=12)
+    ax.set_ylabel("Log-Likelihood", color="white")
+    
+    # 2. Accuracy
+    ax = axes[0, 1]
+    ax.set_facecolor("#0D1117")
+    ax.plot(iters, np.array(diagnostics["accuracy"]) * 100, color="#55A868", lw=1.5)
+    ax.set_title("Inference Accuracy vs Iteration", color="white", fontsize=12)
+    ax.set_ylabel("Accuracy (%)", color="white")
+    ax.set_ylim(0, 105)
+    
+    # 3. Mean Entropy
+    ax = axes[1, 0]
+    ax.set_facecolor("#0D1117")
+    ax.plot(iters, diagnostics["mean_entropy"], color="#C44E52", lw=1.5)
+    ax.set_title("Mean Posterior Entropy (Lower is Better)", color="white", fontsize=12)
+    ax.set_ylabel("Bits", color="white")
+    ax.set_xlabel("Iteration", color="white")
+    
+    # 4. MAP Stability
+    ax = axes[1, 1]
+    ax.set_facecolor("#0D1117")
+    ax.plot(iters, np.array(diagnostics["map_stability"]) * 100, color="#8172B3", lw=1.5)
+    ax.set_title("MAP Label Stability", color="white", fontsize=12)
+    ax.set_ylabel("Stable Nodes (%)", color="white")
+    ax.set_xlabel("Iteration", color="white")
+
+    # Common formatting
+    for ax in axes.flat:
+        ax.axvline(burn_in, color="#DD8452", linestyle="--", alpha=0.6, label="Burn-in")
+        ax.tick_params(colors="white", labelsize=9)
+        ax.spines[:].set_color("#333")
+        ax.grid(alpha=0.1, color="white")
+        ax.legend(framealpha=0.3, facecolor="#1A1A2E", labelcolor="white", fontsize=8)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    fig.suptitle("Advanced MCMC Convergence Diagnostics", color="white", fontsize=16, fontweight="bold")
+    
+    path = os.path.join(config.OUTPUT_DIR, "diagnostics.png")
+    plt.savefig(path, dpi=config.FIGURE_DPI, bbox_inches="tight", facecolor=fig.get_facecolor())
+    plt.close()
+    print(f"  Saved: {path}")

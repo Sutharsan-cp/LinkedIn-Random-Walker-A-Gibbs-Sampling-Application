@@ -2,7 +2,7 @@
 
 > **Homophily-Based Label Propagation via Gibbs Sampling on a Graph Dataset**
 
-An AI project that models a LinkedIn-like social network as a graph and uses **Gibbs Sampling (MCMC)** to infer unknown node labels (professional communities) by exploiting the principle of **homophily** — similar people tend to connect.
+An AI project that models a LinkedIn-like social network as a graph and uses **Gibbs Sampling (MCMC)** to infer unknown node labels (professional communities)The Gibbs Sampler correctly guessed the profession of **207 out of 240 hidden people**, just from looking at who they're connected to!
 
 ---
 
@@ -12,9 +12,9 @@ An AI project that models a LinkedIn-like social network as a graph and uses **G
 |---|---|
 | Graph | 300 nodes · 3,363 edges |
 | Homophily Index | 0.78 |
-| **Gibbs Sampler Accuracy** | **90.83%** |
-| Label Propagation Accuracy | 100.00% |
-| Macro F1 (Gibbs) | 0.91 |
+| **Gibbs Sampler Accuracy** | **86.25%** |
+| Label Propagation Accuracy | 79.58% |
+| Macro F1 (Gibbs) | 0.86 |
 
 ---
 
@@ -106,17 +106,10 @@ The pipeline runs all 9 steps and saves 8 plots to `outputs/`:
 
 ## Algorithm — Gibbs Sampling
 
-```
-Initialise: assign random labels to all unknown nodes
-
-For t = 1 to T:
-    For each unknown node i (random order):
-        counts[l] = #{neighbors of i with label l}  for each label l
-        P(l | neighbors) ∝ counts[l] + smoothing
-        sample new label_i ~ P(· | neighbors)
-
-After burn-in: label_i = argmax over posterior sample counts
-```
+1. **Bootstrapping**: Initialise unknown nodes by sampling from a distribution based *only* on observed neighbors.
+2. **Burn-in Phase**: Run $B$ iterations where labels are updated but samples are not yet collected.
+3. **Sampling Phase**: Run $S$ iterations, updating labels and incrementing frequency counts for each node.
+4. **Final Assignment**: Assign the label with the highest frequency (mode) after the sampling phase.
 
 ---
 
